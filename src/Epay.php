@@ -38,7 +38,7 @@ use Psr\Http\Client\ClientInterface;
 final class Epay
 {
     /** Package version, sent as part of the User-Agent. */
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.1.1';
 
     /** Initialize, verify, and cancel payment sessions. */
     public readonly Payments $payments;

@@ -1,8 +1,10 @@
 # epay-et/php-sdk
 
-Official [ePay Business API](https://api.e-pay.et) client for PHP, with a Laravel integration.
+Official ePay Business API client for PHP, with a Laravel integration.
 
 Accept payments from every major Ethiopian mobile wallet and bank with one integration.
+
+Full API documentation: <https://docs.epayethiopia.com/>
 
 - **PHP 8.1+**, typed throughout, PSR-4 and PSR-18
 - **Automatic retries** with exponential backoff and jitter on `429`/`5xx`/network errors
@@ -47,7 +49,7 @@ Every option falls back to an environment variable, so `new Epay()` is enough.
 | --- | --- | --- |
 | `api_key` | `EPAY_SECRET_KEY` | *required* |
 | `webhook_secret` | `EPAY_WEBHOOK_SECRET` | — |
-| `base_url` | `EPAY_BASE_URL` | `https://api.e-pay.et/v1` |
+| `base_url` | `EPAY_BASE_URL` | `https://api.epayethiopia.com/v1` |
 | `timeout` | — | `30.0` seconds per attempt |
 | `max_retries` | — | `2` |
 | `default_headers` | — | `[]` |

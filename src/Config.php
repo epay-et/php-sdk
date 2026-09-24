@@ -10,7 +10,7 @@ use Epay\Exception\EpayConfigException;
 final class Config
 {
     /** Default API root. */
-    public const DEFAULT_BASE_URL = 'https://api.e-pay.et/v1';
+    public const DEFAULT_BASE_URL = 'https://api.epayethiopia.com/v1';
 
     /** Default per-attempt timeout, in seconds. */
     public const DEFAULT_TIMEOUT = 30.0;

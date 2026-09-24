@@ -64,7 +64,7 @@ final class ClientTest extends TestCase
 
     private const SESSION = [
         'reference' => 'PAB12CD3420260813',
-        'checkoutUrl' => 'https://checkout.e-pay.et/pay/PAB12CD3420260813',
+        'checkoutUrl' => 'https://checkout.epayethiopia.com/pay/PAB12CD3420260813',
         'status' => 'success',
         'expiresAt' => '2026-08-13T12:30:00.000Z',
     ];
@@ -81,7 +81,7 @@ final class ClientTest extends TestCase
         $epay = new Epay(array_merge([
             'api_key' => self::API_KEY,
             'max_retries' => 0,
-            'base_url' => 'https://api.e-pay.et/v1',
+            'base_url' => 'https://api.epayethiopia.com/v1',
         ], $options), $http);
 
         return [$epay, $http];
@@ -143,7 +143,7 @@ final class ClientTest extends TestCase
         self::assertCount(1, $http->calls);
         self::assertSame('POST', $http->calls[0]->getMethod());
         self::assertSame(
-            'https://api.e-pay.et/v1/transactions/initialize',
+            'https://api.epayethiopia.com/v1/transactions/initialize',
             (string) $http->calls[0]->getUri(),
         );
         self::assertSame('Bearer ' . self::API_KEY, $http->calls[0]->getHeaderLine('Authorization'));
@@ -238,7 +238,7 @@ final class ClientTest extends TestCase
         $receipt = $epay->payments->verify('PAB12CD3420260813');
 
         self::assertSame(
-            'https://api.e-pay.et/v1/transactions/PAB12CD3420260813/verify',
+            'https://api.epayethiopia.com/v1/transactions/PAB12CD3420260813/verify',
             (string) $http->calls[0]->getUri(),
         );
         self::assertSame('7.50', $receipt['serviceFee']);
@@ -266,7 +266,7 @@ final class ClientTest extends TestCase
 
         self::assertSame('POST', $http->calls[0]->getMethod());
         self::assertSame(
-            'https://api.e-pay.et/v1/transactions/PAB12CD3420260813/cancel',
+            'https://api.epayethiopia.com/v1/transactions/PAB12CD3420260813/cancel',
             (string) $http->calls[0]->getUri(),
         );
     }
@@ -296,7 +296,7 @@ final class ClientTest extends TestCase
         $epay->transactions->retrieve('PAB 1/2');
 
         self::assertSame(
-            'https://api.e-pay.et/v1/transactions/PAB%201%2F2',
+            'https://api.epayethiopia.com/v1/transactions/PAB%201%2F2',
             (string) $http->calls[0]->getUri(),
         );
     }
@@ -415,7 +415,7 @@ final class ClientTest extends TestCase
         $providers = $epay->paymentProviders->list();
 
         self::assertSame(
-            'https://api.e-pay.et/v1/payment-providers/list',
+            'https://api.epayethiopia.com/v1/payment-providers/list',
             (string) $http->calls[0]->getUri(),
         );
         self::assertSame('telebirr', $providers[0]['providerCode']);
@@ -565,7 +565,7 @@ final class ClientTest extends TestCase
 
         self::assertSame(['ok' => true], $data);
         self::assertSame(
-            'https://api.e-pay.et/v1/some/future/endpoint?limit=10',
+            'https://api.epayethiopia.com/v1/some/future/endpoint?limit=10',
             (string) $http->calls[0]->getUri(),
         );
     }
