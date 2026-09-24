@@ -1,0 +1,8 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+    # Analysing the optional Laravel integration loads the framework, which
+    # needs more than the default 128M.
+    tmpDir: .phpstan

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} (${{ matrix.dependencies }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.1 is the declared floor in composer.json.
+        php: ["8.1", "8.2", "8.3", "8.4"]
+        dependencies: [highest]
+        include:
+          # Also prove the stated minimum constraints actually resolve and pass,
+          # not just whatever the latest releases happen to be.
+          - php: "8.1"
+            dependencies: lowest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, mbstring
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: ${{ matrix.dependencies }}
+
+      - name: Test
+        run: composer test
+
+  quality:
+    name: Static analysis and style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: json, mbstring
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-publish
+
+      - name: PHPStan (level 8)
+        run: composer analyse
+
+      - name: Code style
+        run: composer format:check
+        env:
+          PHP_CS_FIXER_IGNORE_ENV: 1

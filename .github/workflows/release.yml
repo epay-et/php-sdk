@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Verify and notify Packagist
+    runs-on: ubuntu-latest
+    # Hoisted to the job so the "Notify Packagist" step can test them in its
+    # `if`: the secrets context is not available in a step-level condition.
+    env:
+      PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+      PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: json, mbstring
+          coverage: none
+
+      - uses: ramsey/composer-install@v3
+
+      # Packagist publishes whatever the tag points at, with no build step and
+      # no way to unpublish a version. This job is the gate before that.
+      - name: Full check
+        run: |
+          composer validate --strict --no-check-publish
+          composer test
+          composer analyse
+        env:
+          PHP_CS_FIXER_IGNORE_ENV: 1
+
+      # composer.json deliberately has no version field, so the tag is the only
+      # declaration of it. Epay::VERSION rides in the User-Agent and must agree.
+      - name: Verify the tag matches Epay::VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CONSTANT=$(php -r "require 'vendor/autoload.php'; echo Epay\\Epay::VERSION;")
+          echo "tag=$TAG constant=$CONSTANT"
+          [ "$TAG" = "$CONSTANT" ] || {
+            echo "::error::Epay::VERSION is $CONSTANT but the tag is $TAG"
+            exit 1
+          }
+
+      # Normally unnecessary: the Packagist GitHub integration updates the
+      # package on push. This is the fallback when that webhook is not set up,
+      # and is skipped unless the secrets exist.
+      - name: Notify Packagist
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.PACKAGIST_USERNAME != '' }}
+        run: |
+          curl -sS -XPOST -H'content-type:application/json' \
+            "https://packagist.org/api/update-package?username=${PACKAGIST_USERNAME}&apiToken=${PACKAGIST_TOKEN}" \
+            -d '{"repository":{"url":"https://github.com/${{ github.repository }}"}}'

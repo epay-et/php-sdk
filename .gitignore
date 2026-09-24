@@ -1,0 +1,21 @@
+# Dependencies. composer.lock is not committed: this is a library, so the
+# consuming application's lock file is the one that matters.
+vendor/
+composer.lock
+
+# Tooling caches
+.phpunit.result.cache
+.phpunit.cache/
+.php-cs-fixer.cache
+.phpstan/
+build/
+coverage/
+
+# Local env files
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
