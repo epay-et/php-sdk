@@ -120,6 +120,16 @@ final class WebhooksTest extends TestCase
         self::assertFalse(Webhooks::isKnownEvent($event));
     }
 
+    public function testDirectPaymentFieldsPassThrough(): void
+    {
+        $body = '{"event":"payment.failed","reference":"A3BX72KP","pspCode":"TELEBIRR","reason":"Customer cancelled"}';
+        $event = $this->webhooks()->constructEvent($body, $this->header($body));
+
+        self::assertTrue(Webhooks::isKnownEvent($event));
+        self::assertSame('TELEBIRR', $event['pspCode']);
+        self::assertSame('Customer cancelled', $event['reason']);
+    }
+
     public function testAnUnconfiguredSecretExplainsItself(): void
     {
         $webhooks = new Webhooks(null);

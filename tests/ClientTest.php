@@ -421,21 +421,220 @@ final class ClientTest extends TestCase
         self::assertSame('telebirr', $providers[0]['providerCode']);
     }
 
-    public function testListEnabledFiltersOutDisabledProviders(): void
-    {
-        [$epay] = $this->client([
-            self::json(200, [
-                'data' => [
-                    ['providerCode' => 'cbe_birr', 'isEnabled' => true],
-                    ['providerCode' => 'awash_bank', 'isEnabled' => false],
+    private const PROVIDERS = [
+        'data' => [
+            [
+                'providerCode' => 'TELEBIRR',
+                'providerName' => 'TeleBirr',
+                'providerCategory' => 'wallet',
+                'flows' => [
+                    ['flowCode' => 'USSD', 'isDefault' => true, 'supportsDirectPayment' => true],
+                    ['flowCode' => 'SMS_OTP', 'isDefault' => false, 'supportsDirectPayment' => false],
                 ],
-            ]),
+            ],
+            [
+                'providerCode' => 'CBE',
+                'providerName' => 'CBE',
+                'providerCategory' => 'bank',
+                'flows' => [
+                    ['flowCode' => 'QR', 'isDefault' => true, 'supportsDirectPayment' => false],
+                ],
+            ],
+        ],
+    ];
+
+    public function testGetAllReturnsProvidersWithGroupedFlows(): void
+    {
+        [$epay, $http] = $this->client([self::json(200, self::PROVIDERS)]);
+
+        $providers = $epay->paymentProviders->getAll();
+
+        self::assertSame('https://api.epayethiopia.com/v1/payment-providers', (string) $http->calls[0]->getUri());
+        self::assertSame(['USSD', 'SMS_OTP'], array_column($providers[0]['flows'], 'flowCode'));
+    }
+
+    public function testListForDirectPaymentKeepsOnlyDirectFlows(): void
+    {
+        [$epay] = $this->client([self::json(200, self::PROVIDERS)]);
+
+        $providers = $epay->paymentProviders->listForDirectPayment();
+
+        self::assertCount(1, $providers);
+        self::assertSame('TELEBIRR', $providers[0]['providerCode']);
+        self::assertSame(['USSD'], array_column($providers[0]['flows'], 'flowCode'));
+    }
+
+    public function testTheDeprecatedListEnabledReturnsEveryProvider(): void
+    {
+        [$epay] = $this->client([self::json(200, self::PROVIDERS)]);
+
+        $providers = $epay->paymentProviders->listEnabled();
+
+        self::assertSame(['TELEBIRR', 'CBE'], array_column($providers, 'providerCode'));
+    }
+
+    // --- direct payment, SMS link, receipt -----------------------------------
+
+    private const DIRECT = [
+        'reference' => 'A3BX72KP',
+        'status' => 'pending',
+        'chargeAmount' => '250.00',
+        'feeAmount' => '5.00',
+        'attempt' => [],
+    ];
+
+    public function testDirectPaymentPostsANormalizedBodyWithAnIdempotencyKey(): void
+    {
+        [$epay, $http] = $this->client([self::json(200, self::DIRECT)]);
+
+        $charge = $epay->payments->directPayment([
+            'amount' => 250,
+            'currencyCode' => 'etb',
+            'customerPhone' => '0911 234 567',
+            'pspCode' => ' TELEBIRR ',
+            'flowCode' => 'USSD',
+            'merchantReference' => 'order_456',
+        ], idempotencyKey: 'order_456');
+
+        self::assertSame('pending', $charge['status']);
+        self::assertSame('POST', $http->calls[0]->getMethod());
+        self::assertSame('https://api.epayethiopia.com/v1/transactions/direct', (string) $http->calls[0]->getUri());
+        self::assertSame('order_456', $http->calls[0]->getHeaderLine('x-idempotency-key'));
+        self::assertSame([
+            'amount' => '250.00',
+            'currencyCode' => 'ETB',
+            'customerPhone' => '+251911234567',
+            'pspCode' => 'TELEBIRR',
+            'flowCode' => 'USSD',
+            'merchantReference' => 'order_456',
+        ], $http->decodedBody());
+    }
+
+    public function testDirectPaymentOmitsUnsetFieldsAndGeneratesAKey(): void
+    {
+        [$epay, $http] = $this->client([self::json(200, self::DIRECT)]);
+
+        $epay->payments->directPayment([
+            'amount' => '10',
+            'currencyCode' => 'ETB',
+            'customerPhone' => '0911234567',
+            'pspCode' => 'AWASH',
         ]);
 
-        $enabled = $epay->paymentProviders->listEnabled();
+        self::assertSame(['amount', 'currencyCode', 'customerPhone', 'pspCode'], array_keys((array) $http->decodedBody()));
+        self::assertMatchesRegularExpression('/^epay_[0-9a-f]{32}$/', $http->calls[0]->getHeaderLine('x-idempotency-key'));
+    }
 
-        self::assertCount(1, $enabled);
-        self::assertSame('cbe_birr', $enabled[0]['providerCode']);
+    public function testDirectPaymentRequiresAProvider(): void
+    {
+        [$epay, $http] = $this->client([]);
+
+        $caught = null;
+        try {
+            $epay->payments->directPayment([
+                'amount' => '10',
+                'currencyCode' => 'ETB',
+                'customerPhone' => '0911234567',
+                'pspCode' => '   ',
+            ]);
+        } catch (EpayValidationException $error) {
+            $caught = $error;
+        }
+
+        self::assertInstanceOf(EpayValidationException::class, $caught);
+        self::assertStringContainsString('pspCode', $caught->getMessage());
+        self::assertCount(0, $http->calls);
+    }
+
+    public function testDirectPaymentRetriesWithTheSameKey(): void
+    {
+        [$epay, $http] = $this->client(
+            [self::json(503, null), self::json(200, self::DIRECT)],
+            ['max_retries' => 1],
+        );
+
+        $epay->payments->directPayment([
+            'amount' => '10',
+            'currencyCode' => 'ETB',
+            'customerPhone' => '0911234567',
+            'pspCode' => 'TELEBIRR',
+        ]);
+
+        self::assertCount(2, $http->calls);
+        self::assertSame(
+            $http->calls[0]->getHeaderLine('x-idempotency-key'),
+            $http->calls[1]->getHeaderLine('x-idempotency-key'),
+        );
+    }
+
+    public function testSendSmsLinkPostsANormalizedBody(): void
+    {
+        $link = [
+            'message' => 'Checkout link sent via SMS',
+            'checkoutUrl' => 'https://api.epayethiopia.com/v1/sms/p/ps_live_abc123?sig=x',
+            'customerPhone' => '+251911234567',
+            'amount' => '500.00',
+            'currencyCode' => 'ETB',
+        ];
+        [$epay, $http] = $this->client([self::json(200, $link)]);
+
+        $result = $epay->payments->sendSmsLink([
+            'customerPhone' => '0911234567',
+            'currencyCode' => 'etb',
+            'amount' => 500,
+        ]);
+
+        self::assertSame($link, $result);
+        self::assertSame('https://api.epayethiopia.com/v1/transactions/sms-link', (string) $http->calls[0]->getUri());
+        self::assertSame(
+            ['customerPhone' => '+251911234567', 'currencyCode' => 'ETB', 'amount' => '500.00'],
+            $http->decodedBody(),
+        );
+    }
+
+    public function testSendSmsLinkWithoutAnAmountLeavesItToTheCustomer(): void
+    {
+        [$epay, $http] = $this->client([self::json(200, ['amount' => null])]);
+
+        $epay->payments->sendSmsLink(['customerPhone' => '0911234567', 'currencyCode' => 'ETB']);
+
+        self::assertArrayNotHasKey('amount', (array) $http->decodedBody());
+    }
+
+    public function testSendSmsLinkIsNeverRetried(): void
+    {
+        [$epay, $http] = $this->client(
+            [self::json(503, null), self::json(503, null), self::json(503, null)],
+            ['max_retries' => 2],
+        );
+
+        $caught = null;
+        try {
+            $epay->payments->sendSmsLink(['customerPhone' => '0911234567', 'currencyCode' => 'ETB']);
+        } catch (EpayApiException $error) {
+            $caught = $error;
+        }
+
+        self::assertInstanceOf(EpayServerException::class, $caught);
+        self::assertCount(1, $http->calls, 'a retry would text the customer twice');
+    }
+
+    public function testReceiptReturnsAnyTerminalTransaction(): void
+    {
+        [$epay, $http] = $this->client([self::json(200, [
+            'reference' => 'A3BX72KP',
+            'status' => 'failed',
+            'paidAt' => null,
+        ])]);
+
+        $receipt = $epay->payments->receipt('A3BX72KP');
+
+        self::assertSame(
+            'https://api.epayethiopia.com/v1/transactions/A3BX72KP/receipt',
+            (string) $http->calls[0]->getUri(),
+        );
+        self::assertSame('failed', $receipt['status']);
+        self::assertNull($receipt['paidAt']);
     }
 
     public function testAMissingPermissionSurfacesAsPermissionDenied(): void

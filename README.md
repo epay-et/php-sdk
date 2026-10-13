@@ -130,6 +130,66 @@ Only `pending` and `processing` transactions can be cancelled, and cancellation
 is irreversible. This call is never retried automatically, because the endpoint
 takes no idempotency key.
 
+### Receipt for any outcome
+
+```php
+$receipt = $epay->payments->receipt($reference);
+// $receipt['status'] is 'completed', 'failed', or 'cancelled'
+```
+
+Unlike `verify`, `receipt` accepts failed and cancelled transactions too, which
+suits records, audits, and customer-facing receipts. It still throws
+`EpayBadRequestException` for a transaction that is `pending` or `processing`.
+
+## Direct payment
+
+Charge a customer's wallet or bank account without redirecting them anywhere.
+ePay pushes an authorization prompt (USSD menu, SMS OTP, or in-app notification)
+to their phone:
+
+```php
+$charge = $epay->payments->directPayment([
+    'amount' => '250.00',
+    'currencyCode' => 'ETB',
+    'customerPhone' => '0911234567',
+    'pspCode' => 'TELEBIRR',
+    'merchantReference' => 'order_456',
+], idempotencyKey: 'order_456');
+// $charge['status'] === 'pending'; store $charge['reference']
+```
+
+The call returns as soon as the prompt is sent. The outcome arrives as a
+`payment.success` or `payment.failed` webhook once the customer approves or
+declines, so fulfil the order from your webhook handler, not from this response.
+
+Choose `pspCode`, and optionally `flowCode`, from the providers that support it:
+
+```php
+$providers = $epay->paymentProviders->listForDirectPayment();
+// [['providerCode' => 'TELEBIRR', 'flows' => [['flowCode' => 'USSD', 'isDefault' => true, ...]]]]
+```
+
+Like `initialize`, a direct payment is retried safely with one idempotency key.
+Pass your order id so a double-submitted form cannot charge twice. Direct payments
+must be enabled for your account; contact ePay support.
+
+## SMS payment link
+
+Text the customer a link to the hosted checkout page, for invoices, bills, and
+customers who are not present:
+
+```php
+$link = $epay->payments->sendSmsLink([
+    'customerPhone' => '0911234567',
+    'currencyCode' => 'ETB',
+    'amount' => '500.00', // omit to let the customer enter the amount
+]);
+```
+
+An amount is signed into the link, so it cannot be tampered with. The link
+expires after 1 hour. This call is never retried automatically, so a customer is
+never texted twice.
+
 ## Transactions
 
 ```php
@@ -178,13 +238,19 @@ foreach ($epay->transactions->list()->pages() as $page) {  // page at a time
 ## Payment providers
 
 ```php
-$epay->paymentProviders->list();         // compact, for dropdowns
-$epay->paymentProviders->getAll();       // with category and isEnabled
-$epay->paymentProviders->listEnabled();  // only what you can route to today
+$epay->paymentProviders->getAll();               // every provider, with its flows
+$epay->paymentProviders->listForDirectPayment();  // only what directPayment accepts
+$epay->paymentProviders->list();                 // compact, for dropdowns
 ```
 
-Both endpoints are mode-aware and permission-gated: `list` needs
-`list_platform_payment_provider`, `getAll` needs `get_platform_payment_provider`.
+Each provider lists its `flows`. A flow's `isDefault` marks the one to
+pre-select, and `supportsDirectPayment` marks the ones `directPayment` accepts.
+
+The endpoints are mode-aware and permission-gated: `getAll` needs
+`get_platform_payment_provider`, and `list` needs `list_platform_payment_provider`.
+
+`listEnabled()` is deprecated. The API no longer reports a per-provider enabled
+state, so it now returns the same list as `getAll()`.
 
 ## Webhooks
 
@@ -222,6 +288,9 @@ match ($event['event']) {
     default => null, // an event this SDK version does not know yet
 };
 ```
+
+Direct payment events also carry `pspCode`, `customerPhone`, and `occurredAt`, and
+`payment.failed` carries a `reason`.
 
 ePay retries anything that is not a `2xx` within 10 seconds, up to 5 attempts,
 so keep the handler fast and make it idempotent — deduplicate on
